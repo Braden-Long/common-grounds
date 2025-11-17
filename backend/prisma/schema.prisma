@@ -1,0 +1,168 @@
+// Prisma schema for Common Grounds
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// USER MANAGEMENT
+// ============================================================================
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  phoneHash       String?  @unique @map("phone_hash")
+  computingId     String?  @unique @map("computing_id")
+  emailVerified   Boolean  @default(false) @map("email_verified")
+  phoneVerified   Boolean  @default(false) @map("phone_verified")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  magicLinks             MagicLink[]
+  sessions               Session[]
+  classes                UserClass[]
+  friendshipsInitiated   Friendship[] @relation("UserFriendshipsInitiated")
+  friendshipsReceived    Friendship[] @relation("UserFriendshipsReceived")
+  messages               ClassMessage[]
+
+  @@map("users")
+}
+
+model MagicLink {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  tokenHash   String   @unique @map("token_hash")
+  expiresAt   DateTime @map("expires_at")
+  used        Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("magic_links")
+}
+
+model Session {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  tokenHash   String   @unique @map("token_hash")
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  lastUsedAt  DateTime @default(now()) @map("last_used_at")
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// ============================================================================
+// CLASS MANAGEMENT
+// ============================================================================
+
+model Class {
+  id                  String   @id @default(uuid())
+  subject             String
+  catalogNumber       String   @map("catalog_number")
+  term                String
+  title               String?
+  description         String?  @db.Text
+  sisClassNumber      String?  @map("sis_class_number")
+  instructor          String?
+  component           String?
+  classSection        String?  @map("class_section")
+  classCapacity       Int?     @map("class_capacity")
+  enrollmentAvailable Int?     @map("enrollment_available")
+  days                String?
+  startTime           String?  @map("start_time")
+  endTime             String?  @map("end_time")
+  location            String?
+  lastSyncedAt        DateTime? @map("last_synced_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  users               UserClass[]
+  messages            ClassMessage[]
+
+  @@unique([subject, catalogNumber, term, sisClassNumber])
+  @@index([subject, catalogNumber, term])
+  @@index([term])
+  @@map("classes")
+}
+
+model UserClass {
+  userId      String   @map("user_id")
+  classId     String   @map("class_id")
+  enrolledAt  DateTime @default(now()) @map("enrolled_at")
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  class       Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@id([userId, classId])
+  @@index([userId])
+  @@index([classId])
+  @@map("user_classes")
+}
+
+// ============================================================================
+// FRIEND SYSTEM
+// ============================================================================
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  BLOCKED
+}
+
+model Friendship {
+  id          String           @id @default(uuid())
+  userId1     String           @map("user_id_1")
+  userId2     String           @map("user_id_2")
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  user1       User             @relation("UserFriendshipsInitiated", fields: [userId1], references: [id], onDelete: Cascade)
+  user2       User             @relation("UserFriendshipsReceived", fields: [userId2], references: [id], onDelete: Cascade)
+
+  @@unique([userId1, userId2])
+  @@index([userId1])
+  @@index([userId2])
+  @@index([status])
+  @@map("friendships")
+}
+
+// ============================================================================
+// ANONYMOUS MESSAGING
+// ============================================================================
+
+model ClassMessage {
+  id                    String   @id @default(uuid())
+  classId               String   @map("class_id")
+  userId                String   @map("user_id")
+  anonymousIdentifier   String   @map("anonymous_identifier")
+  content               String   @db.Text
+  parentMessageId       String?  @map("parent_message_id")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  flaggedCount          Int      @default(0) @map("flagged_count")
+  hidden                Boolean  @default(false)
+
+  class                 Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentMessage         ClassMessage? @relation("MessageReplies", fields: [parentMessageId], references: [id], onDelete: Cascade)
+  replies               ClassMessage[] @relation("MessageReplies")
+
+  @@index([classId, createdAt(sort: Desc)])
+  @@index([userId])
+  @@index([parentMessageId])
+  @@map("class_messages")
+}
